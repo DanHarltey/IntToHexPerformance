@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
@@ -9,8 +10,6 @@ namespace ToHexPerformance
 {
     public static class NumberFormatingNew
     {
-        private static readonly string[] s_singleDigitStringCache = { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" };
-
 
         public static unsafe string FormatInt32(int value, ReadOnlySpan<char> format, IFormatProvider? provider)
         {
@@ -18,33 +17,37 @@ namespace ToHexPerformance
 
             // The fmt-(X-A+10) hack has the effect of dictating whether we produce uppercase or lowercase
             // hex numbers for a-f. 'X' as the fmt code produces uppercase. 'x' as the format code produces lowercase.
-            return Int32ToHexStr(value, (char)(fmt - ('X' - 'A' + 10)), digits);
+            return Int32ToHexStr(value, (char)(fmt - ('X' - 'A' + 10)));
         }
 
-        private static unsafe string Int32ToHexStr(int value, char hexBase, int digits)
+        private static unsafe string Int32ToHexStr(int value, char hexBase)
         {
-            if (digits < 1)
-                digits = 1;
+            uint uValue = (uint)value;
 
-            int bufferLength = Math.Max(digits, CountHexDigits((uint)value));
-            string result = new string(new char[bufferLength]);
-            fixed (char* buffer = result)
-            {
-                char* p = Int32ToHexChars(buffer + bufferLength, (uint)value, hexBase, digits);
-                Debug.Assert(p == buffer);
-            }
+            int bufferLength = Math.Max(1, CountHexDigits(uValue));
+
+            ulong state = hexBase;
+            state <<= 32;
+            state |= uValue;
+
+            string result = string.Create(bufferLength, state, action);
+
             return result;
         }
 
-        private static unsafe char* Int32ToHexChars(char* buffer, uint value, int hexBase, int digits)
+        private static SpanAction<char, ulong> action = Int32ToHexChars;
+
+        private static void Int32ToHexChars(Span<char> buffer, ulong state)
         {
-            while (--digits >= 0 || value != 0)
+            int hexBase = (int)(state >> 32);
+            //uint value = (uint)state;
+
+            for (int i = buffer.Length - 1; i >= 0; i--)
             {
-                byte digit = (byte)(value & 0xF);
-                *(--buffer) = (char)(digit + (digit < 10 ? (byte)'0' : hexBase));
-                value >>= 4;
+                byte digit = (byte)(state & 0xF);
+                buffer[i] = (char)(digit + (digit < 10 ? (byte)'0' : hexBase));
+                state >>= 4;
             }
-            return buffer;
         }
 
         internal static unsafe char ParseFormatSpecifier(ReadOnlySpan<char> format, out int digits)

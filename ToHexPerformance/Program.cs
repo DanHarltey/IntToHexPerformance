@@ -15,8 +15,7 @@ namespace ToHexPerformance
 
         private const int value = 10;
 
-
-        [Benchmark]
+        [Benchmark(Baseline = true)]
         public string IntToString() => value.ToString("x");
 
         [Benchmark]
